@@ -87,9 +87,8 @@ func handlerError(rw http.ResponseWriter, html string, code int) {
 	var b bytes.Buffer
 	w, err := flate.NewWriter(&b, flate.BestCompression)
 	if err != nil {
-		rw.Header().Set("Content-Type", "text/plain")
-		rw.WriteHeader(http.StatusBadGateway)
-		io.WriteString(rw, err.Error())
+		http.Error(rw, err.Error(), http.StatusBadGateway)
+		return
 	}
 
 	fmt.Fprintf(w, "HTTP/1.1 %d\r\n", code)
@@ -99,7 +98,7 @@ func handlerError(rw http.ResponseWriter, html string, code int) {
 	io.WriteString(w, html)
 	w.Close()
 
-	b0 := make([]byte, 2)
+	b0 := []byte{0, 0}
 	binary.BigEndian.PutUint16(b0, uint16(b.Len()))
 
 	rw.Header().Set("Content-Type", "image/gif")
@@ -112,16 +111,20 @@ func handlerError(rw http.ResponseWriter, html string, code int) {
 func handler(rw http.ResponseWriter, r *http.Request) {
 	var err error
 	context := appengine.NewContext(r)
-	context.Infof("Hanlde Request %#v\n", r)
+	context.Infof("Hanlde Request=%#v\n", r)
 
 	var hdrLen uint16
 	if err := binary.Read(r.Body, binary.BigEndian, &hdrLen); err != nil {
 		context.Criticalf("binary.Read(&hdrLen) return %v", err)
+		handlerError(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	req, err := ReadRequest(bufio.NewReader(flate.NewReader(&io.LimitedReader{R: r.Body, N: int64(hdrLen)})))
 	if err != nil {
 		context.Criticalf("http.ReadRequest(%#v) return %#v", r.Body, err)
+		handlerError(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	req.Body = r.Body
@@ -196,7 +199,7 @@ func handler(rw http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "\r\n")
 	w.Close()
 
-	b0 := make([]byte, 2)
+	b0 := []byte{0, 0}
 	binary.BigEndian.PutUint16(b0, uint16(b.Len()))
 
 	rw.Header().Set("Content-Type", "image/gif")
