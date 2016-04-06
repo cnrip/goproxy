@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,62 @@ const (
 	FetchMaxSize = 1024 * 1024 * 4
 	Deadline     = 30 * time.Second
 )
+
+func ReadRequest(r io.Reader) (req *http.Request, err error) {
+	req = new(http.Request)
+
+	scanner := bufio.NewScanner(r)
+	if scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, " ")
+		if len(parts) != 3 {
+			err = fmt.Errorf("Invaild Request Line: %#v", line)
+			return
+		}
+
+		req.Method = parts[0]
+		req.RequestURI = parts[1]
+		req.Proto = "HTTP/1.1"
+		req.ProtoMajor = 1
+		req.ProtoMinor = 1
+
+		if req.URL, err = url.Parse(req.RequestURI); err != nil {
+			return
+		}
+		req.Host = req.URL.Host
+
+		req.Header = http.Header{}
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		req.Header.Add(key, value)
+	}
+
+	if err = scanner.Err(); err != nil {
+		// ignore
+	}
+
+	if cl := req.Header.Get("Content-Length"); cl != "" {
+		if req.ContentLength, err = strconv.ParseInt(cl, 10, 64); err != nil {
+			return
+		}
+	}
+
+	req.Host = req.URL.Host
+	if req.Host == "" {
+		req.Host = req.Header.Get("Host")
+	}
+
+	return
+}
 
 func handlerError(rw http.ResponseWriter, html string, code int) {
 	var b bytes.Buffer
@@ -62,7 +119,7 @@ func handler(rw http.ResponseWriter, r *http.Request) {
 		context.Criticalf("binary.Read(&hdrLen) return %v", err)
 	}
 
-	req, err := http.ReadRequest(bufio.NewReader(flate.NewReader(&io.LimitedReader{R: r.Body, N: int64(hdrLen)})))
+	req, err := ReadRequest(bufio.NewReader(flate.NewReader(&io.LimitedReader{R: r.Body, N: int64(hdrLen)})))
 	if err != nil {
 		context.Criticalf("http.ReadRequest(%#v) return %#v", r.Body, err)
 	}
@@ -134,7 +191,9 @@ func handler(rw http.ResponseWriter, r *http.Request) {
 		handlerError(rw, fmt.Sprintf("Go Server Fetch Failed: %v", w), 502)
 	}
 
+	fmt.Fprintf(w, "HTTP/1.1 %d %s\r\n", resp.StatusCode, resp.Status)
 	resp.Header.Write(w)
+	io.WriteString(w, "\r\n")
 	w.Close()
 
 	b0 := make([]byte, 2)
