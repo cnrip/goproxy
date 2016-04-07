@@ -129,21 +129,22 @@ func handler(rw http.ResponseWriter, r *http.Request) {
 
 	req.Body = r.Body
 
-	params := make(map[string]string)
-	paramPrefix := "X-UrlFetch-"
-	for key, values := range r.Header {
+	params := map[string]string{}
+	var paramPrefix string = http.CanonicalHeaderKey("X-UrlFetch-")
+	for key, values := range req.Header {
 		if strings.HasPrefix(key, paramPrefix) {
 			params[strings.ToLower(key[len(paramPrefix):])] = values[0]
 		}
 	}
 
-	for key, _ := range params {
+	for _, key := range params {
 		req.Header.Del(paramPrefix + key)
 	}
 
 	if Password != "" {
 		if password, ok := params["password"]; !ok || password != Password {
 			handlerError(rw, "Wrong Password.", 403)
+            return
 		}
 	}
 
