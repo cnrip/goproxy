@@ -129,22 +129,23 @@ func handler(rw http.ResponseWriter, r *http.Request) {
 
 	req.Body = r.Body
 
-	params := map[string]string{}
+	params := http.Header{}
 	var paramPrefix string = http.CanonicalHeaderKey("X-UrlFetch-")
 	for key, values := range req.Header {
 		if strings.HasPrefix(key, paramPrefix) {
-			params[strings.ToLower(key[len(paramPrefix):])] = values[0]
+			params.Set(key, values[0])
 		}
 	}
 
-	for _, key := range params {
-		req.Header.Del(paramPrefix + key)
+	for key, _ := range params {
+		req.Header.Del(key)
 	}
+	// req.Header.Del("X-Cloud-Trace-Context")
 
 	if Password != "" {
-		if password, ok := params["password"]; !ok || password != Password {
+		if password := params.Get("X-UrlFetch-Password"); password != "" && password != Password {
 			handlerError(rw, "Wrong Password.", 403)
-            return
+			return
 		}
 	}
 
